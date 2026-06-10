@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Nyx</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  background: #08080f;
+  color: #b0b0c8;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Left panel ── */
+#panel-left {
+  width: 260px;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 16px;
+  border-right: 1px solid #141428;
+  gap: 14px;
+}
+
+#nyx-canvas { border: 1px solid #1a1a30; display: block; }
+
+#state-badge {
+  background: #0f0f20;
+  border: 1px solid #2a2a50;
+  color: #7070d0;
+  padding: 3px 14px;
+  border-radius: 20px;
+  font-size: 11px;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  transition: color 0.4s, border-color 0.4s;
+}
+
+#state-badge.thinking {
+  color: #d0a030;
+  border-color: #806020;
+  animation: badge-pulse 1s ease-in-out infinite;
+}
+
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.4; }
+}
+
+#emotions { width: 100%; display: flex; flex-direction: column; gap: 9px; }
+
+.e-row { display: flex; flex-direction: column; gap: 3px; }
+.e-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: #505070;
+  letter-spacing: 1px;
+}
+.e-track { background: #111120; height: 3px; border-radius: 2px; }
+.e-fill  { height: 3px; border-radius: 2px; transition: width 1.2s ease; }
+
+#interests { width: 100%; }
+#interests h3 { font-size: 10px; color: #404060; letter-spacing: 2px; margin-bottom: 6px; }
+#interest-list { list-style: none; display: flex; flex-direction: column; gap: 3px; }
+#interest-list li { font-size: 10px; color: #606090; }
+
+#conn-status { font-size: 10px; color: #303050; margin-top: auto; }
+
+/* ── Right panel ── */
+#panel-right {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+#messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.msg { line-height: 1.6; }
+.msg .who { font-size: 10px; opacity: 0.4; margin-bottom: 3px; letter-spacing: 1px; }
+.msg.system { color: #303050; font-size: 11px; font-style: italic; }
+.msg.user   { color: #5878c0; }
+.msg.nyx    { color: #50b860; }
+.msg.speak  { color: #c09830; font-style: italic; }
+.msg.ack    { color: #906828; font-style: italic; }
+
+/* thinking dots after ack message */
+.thinking-dots::after {
+  content: '';
+  display: inline-block;
+  animation: dots 1.2s steps(3, end) infinite;
+  width: 1.5em;
+  text-align: left;
+}
+@keyframes dots {
+  0%   { content: '.'; }
+  33%  { content: '..'; }
+  66%  { content: '...'; }
+  100% { content: ''; }
+}
+
+#input-area {
+  display: flex;
+  padding: 14px 16px;
+  gap: 8px;
+  border-top: 1px solid #141428;
+}
+
+#chat-input {
+  flex: 1;
+  background: #0c0c18;
+  border: 1px solid #202040;
+  color: #b0b0c8;
+  padding: 8px 12px;
+  font-family: 'Courier New', monospace;
+  font-size: 13px;
+  outline: none;
+  border-radius: 2px;
+}
+#chat-input:focus { border-color: #3030a0; }
+#chat-input:disabled { opacity: 0.4; }
+
+#send-btn {
+  background: #141428;
+  border: 1px solid #2a2a60;
+  color: #7070c0;
+  padding: 8px 18px;
+  cursor: pointer;
+  font-family: 'Courier New', monospace;
+  font-size: 12px;
+  letter-spacing: 1px;
+  border-radius: 2px;
+}
+#send-btn:hover:not(:disabled) { background: #1e1e40; }
+#send-btn:disabled { opacity: 0.4; cursor: default; }
+</style>
+</head>
+<body>
+
+<div id="panel-left">
+  <div id="state-badge">observe</div>
+  <canvas id="nyx-canvas"></canvas>
+
+  <div id="emotions">
+    <div class="e-row">
+      <div class="e-label"><span>CURIOSITY</span><span id="v-curiosity">0.50</span></div>
+      <div class="e-track"><div class="e-fill" id="b-curiosity" style="width:50%;background:#6060d0"></div></div>
+    </div>
+    <div class="e-row">
+      <div class="e-label"><span>ENERGY</span><span id="v-energy">0.70</span></div>
+      <div class="e-track"><div class="e-fill" id="b-energy" style="width:70%;background:#40b060"></div></div>
+    </div>
+    <div class="e-row">
+      <div class="e-label"><span>SATISFACTION</span><span id="v-satisfaction">0.50</span></div>
+      <div class="e-track"><div class="e-fill" id="b-satisfaction" style="width:50%;background:#c08030"></div></div>
+    </div>
+    <div class="e-row">
+      <div class="e-label"><span>NOVELTY HUNGER</span><span id="v-novelty_hunger">0.30</span></div>
+      <div class="e-track"><div class="e-fill" id="b-novelty_hunger" style="width:30%;background:#c03060"></div></div>
+    </div>
+  </div>
+
+  <div id="interests">
+    <h3>TOP INTERESTS</h3>
+    <ul id="interest-list"><li>—</li></ul>
+  </div>
+
+  <div id="conn-status">connecting...</div>
+</div>
+
+<div id="panel-right">
+  <div id="messages">
+    <div class="msg system">— nyx is becoming aware —</div>
+  </div>
+  <div id="input-area">
+    <input id="chat-input" type="text" placeholder="speak to nyx...">
+    <button id="send-btn">SEND</button>
+  </div>
+</div>
+
+<script>
+// ── Pixel art: cat silhouette (14 cols × 19 rows) ─────────────────────
+// 1 = body pixel, 0 = transparent (background shows through)
+const CAT_SPRITE = [
+  [0,0,1,0,0,0,0,0,0,0,0,1,0,0],  // ear tips
+  [0,1,1,1,0,0,0,0,0,0,1,1,1,0],  // ears
+  [1,1,1,1,1,0,0,0,0,1,1,1,1,1],  // ear base
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // head top
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // head
+  [0,1,0,1,1,1,1,1,1,1,1,0,1,0],  // eyes (0 = dark eye gap)
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // face
+  [0,0,1,1,1,1,1,1,1,1,1,1,0,0],  // chin
+  [0,0,0,1,1,1,1,1,1,1,1,0,0,0],  // neck
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // body top
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],  // body
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],  // body
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],  // body
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // body bottom
+  [0,0,1,1,0,0,0,0,0,0,1,1,0,0],  // upper legs
+  [0,0,1,1,0,0,0,0,0,0,1,1,0,0],  // lower legs
+  [0,1,1,1,1,0,0,0,0,1,1,1,1,0],  // paws
+  [1,1,0,0,0,0,0,0,0,0,0,0,0,0],  // tail base (wrapping left)
+  [0,1,1,1,0,0,0,0,0,0,0,0,0,0],  // tail tip
+];
+
+const PX = 5;  // pixel size in screen pixels
+const W = 200, H = 200;
+
+const app = new PIXI.Application({
+  view: document.getElementById('nyx-canvas'),
+  width: W, height: H,
+  backgroundColor: 0x08080f,
+  antialias: false,
+  resolution: 1,
+});
+
+const nyxContainer = new PIXI.Container();
+nyxContainer.x = W / 2;
+nyxContainer.y = H / 2;
+app.stage.addChild(nyxContainer);
+
+const STATE_COLORS = {
+  sleep:    0x182030,
+  observe:  0x303080,
+  think:    0x5050c0,
+  learn:    0x2090c0,
+  journal:  0xc07820,
+  thinking: 0xc09020,  // user chat thinking state
+};
+
+function drawCat(stateName) {
+  nyxContainer.removeChildren();
+  const color  = STATE_COLORS[stateName] ?? 0x4040a0;
+  const cols   = CAT_SPRITE[0].length;
+  const rows   = CAT_SPRITE.length;
+  const ox     = -(cols * PX) / 2;
+  const oy     = -(rows * PX) / 2;
+
+  const g = new PIXI.Graphics();
+  CAT_SPRITE.forEach((row, y) => {
+    row.forEach((cell, x) => {
+      if (!cell) return;
+      g.beginFill(color);
+      g.drawRect(ox + x * PX, oy + y * PX, PX, PX);
+      g.endFill();
+    });
+  });
+  nyxContainer.addChild(g);
+}
+
+drawCat('observe');
+
+let t = 0;
+let isThinking = false;
+let currentState = 'observe';
+
+app.ticker.add(() => {
+  t += 0.035;
+  // Idle bobbing
+  nyxContainer.y = H / 2 + Math.sin(t) * 3;
+  // Thinking: add gentle pulse
+  if (isThinking) {
+    const pulse = 1 + Math.sin(t * 4) * 0.04;
+    nyxContainer.scale.set(pulse);
+  } else {
+    nyxContainer.scale.set(1);
+  }
+});
+
+// ── State & emotion display ───────────────────────────────────────────
+const badge = document.getElementById('state-badge');
+
+function setThinkingMode(on) {
+  isThinking = on;
+  if (on) {
+    badge.textContent = 'thinking';
+    badge.classList.add('thinking');
+    drawCat('thinking');
+  } else {
+    badge.textContent = currentState;
+    badge.classList.remove('thinking');
+    drawCat(currentState);
+  }
+}
+
+function updateState(s) {
+  currentState = s?.state ?? 'observe';
+  if (!isThinking) {
+    badge.textContent = currentState;
+    drawCat(currentState);
+  }
+}
+
+function updateEmotions(e) {
+  ['curiosity', 'energy', 'satisfaction', 'novelty_hunger'].forEach(k => {
+    const v = e[k] ?? 0;
+    const bar = document.getElementById(`b-${k}`);
+    const val = document.getElementById(`v-${k}`);
+    if (bar) bar.style.width = (v * 100) + '%';
+    if (val) val.textContent = v.toFixed(2);
+  });
+}
+
+function updateInterests(interests) {
+  const ul = document.getElementById('interest-list');
+  if (!interests?.top_interests?.length) return;
+  ul.innerHTML = interests.top_interests.map(i =>
+    `<li>${esc(i.topic)} <span style="color:#303060">${i.weight.toFixed(2)}</span></li>`
+  ).join('');
+}
+
+// ── Messages ──────────────────────────────────────────────────────────
+const msgBox = document.getElementById('messages');
+let streamingDiv = null;  // active div being built by token stream
+
+function addMsg(cls, who, text) {
+  const d = document.createElement('div');
+  d.className = `msg ${cls}`;
+  d.innerHTML = `<div class="who">${who}</div><span class="body">${esc(text)}</span>`;
+  msgBox.appendChild(d);
+  msgBox.scrollTop = msgBox.scrollHeight;
+  return d;
+}
+
+function startStreamMsg(cls, who) {
+  const d = document.createElement('div');
+  d.className = `msg ${cls}`;
+  d.innerHTML = `<div class="who">${who}</div><span class="body"></span>`;
+  msgBox.appendChild(d);
+  msgBox.scrollTop = msgBox.scrollHeight;
+  return d;
+}
+
+function appendToken(div, token) {
+  const body = div.querySelector('.body');
+  if (body) body.textContent += token;
+  msgBox.scrollTop = msgBox.scrollHeight;
+}
+
+function esc(s) {
+  return String(s)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;');
+}
+
+// ── Input state helpers ───────────────────────────────────────────────
+const chatInput = document.getElementById('chat-input');
+const sendBtn   = document.getElementById('send-btn');
+
+function setInputEnabled(on) {
+  chatInput.disabled = !on;
+  sendBtn.disabled   = !on;
+  if (on) chatInput.focus();
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────
+const statusEl = document.getElementById('conn-status');
+let ws, ackDiv;
+
+function connect() {
+  ws = new WebSocket(`ws://${location.host}/ws`);
+
+  ws.onopen = () => {
+    statusEl.textContent = '● connected';
+    statusEl.style.color = '#306030';
+    setInputEnabled(true);
+  };
+
+  ws.onclose = () => {
+    statusEl.textContent = '○ reconnecting...';
+    statusEl.style.color = '#603030';
+    setInputEnabled(false);
+    setTimeout(connect, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = ({ data }) => {
+    const msg = JSON.parse(data);
+
+    // ── autonomous state update ──
+    if (msg.type === 'state' || msg.state) {
+      updateState(msg.state);
+      if (msg.emotion)   updateEmotions(msg.emotion);
+      if (msg.interests) updateInterests(msg.interests);
+    }
+
+    // ── Nyx speaks unprompted ──
+    if (msg.type === 'speak') {
+      addMsg('speak', 'nyx [unprompted]', msg.content);
+    }
+
+    // ── deep thought: show ack + thinking indicator ──
+    if (msg.type === 'deep_ack') {
+      ackDiv = addMsg('ack', 'nyx', msg.content);
+      const body = ackDiv.querySelector('.body');
+      if (body) body.classList.add('thinking-dots');
+    }
+
+    if (msg.type === 'thinking') {
+      setThinkingMode(true);
+    }
+
+    // ── streaming response ──
+    if (msg.type === 'chat_start') {
+      // Remove thinking dots from ack message if present
+      if (ackDiv) {
+        const body = ackDiv.querySelector('.body');
+        if (body) body.classList.remove('thinking-dots');
+        ackDiv = null;
+      }
+      streamingDiv = startStreamMsg('nyx', 'nyx');
+    }
+
+    if (msg.type === 'token' && streamingDiv) {
+      appendToken(streamingDiv, msg.content);
+    }
+
+    if (msg.type === 'chat_done') {
+      streamingDiv = null;
+      setThinkingMode(false);
+      setInputEnabled(true);
+    }
+  };
+}
+
+connect();
+
+// ── Send ──────────────────────────────────────────────────────────────
+function send() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const text = chatInput.value.trim();
+  if (!text) return;
+
+  addMsg('user', 'you', text);
+  ws.send(JSON.stringify({ type: 'chat', content: text }));
+  chatInput.value = '';
+  setInputEnabled(false);  // disable until response is done
+  ackDiv = null;
+}
+
+sendBtn.onclick = send;
+chatInput.onkeydown = e => { if (e.key === 'Enter') send(); };
+</script>
+</body>
+</html>
