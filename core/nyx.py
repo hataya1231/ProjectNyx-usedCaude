@@ -34,12 +34,17 @@ class NyxCore:
         self._running = False
         self._last_speech_tick: int = -999
         self._on_speak: Callable[[str], None] | None = None
+        self._on_thought: Callable[[str], None] | None = None
         self._on_state_change: Callable[[dict], None] | None = None
 
     # ── event hooks ──────────────────────────────────────────────────────
 
     def on_speak(self, callback: Callable[[str], None]):
         self._on_speak = callback
+
+    def on_thought(self, callback: Callable[[str], None]):
+        """Internal monologue — fired on every think/journal cycle."""
+        self._on_thought = callback
 
     def on_state_change(self, callback: Callable[[dict], None]):
         self._on_state_change = callback
@@ -164,6 +169,8 @@ class NyxCore:
         if thought:
             self.memory.add(thought, metadata={"type": "thought", "topic": topic})
             self.emotion.on_thinking()
+            if self._on_thought:
+                self._on_thought(thought)
 
     def _do_journal(self, obs: dict):
         memories = self.memory.search("recent experience", n=2)
@@ -176,6 +183,8 @@ class NyxCore:
         if entry:
             self.inner_log.add_entry(entry, entry_type="journal")
             self.emotion.on_journaling()
+            if self._on_thought:
+                self._on_thought(entry)
 
     # ── helpers ───────────────────────────────────────────────────────────
 
