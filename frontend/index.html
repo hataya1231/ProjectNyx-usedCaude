@@ -39,28 +39,36 @@ html, body {
 }
 
 /* Sit button — bottom left */
-#sit-btn {
+/* God-view title — top center, very faint */
+#god-title {
+  position: fixed;
+  top: 22px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: 'Courier New', monospace;
+  font-size: 11px;
+  color: rgba(200, 170, 180, 0.35);
+  letter-spacing: 4px;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* "Now doing…" ambient label — bottom left */
+#activity-label {
   position: fixed;
   bottom: 32px;
   left: 32px;
-  background: rgba(36, 24, 30, 0.55);
-  border: 1px solid rgba(210, 150, 130, 0.4);
-  color: rgba(235, 195, 180, 0.9);
+  max-width: 280px;
   font-family: 'Courier New', monospace;
-  font-size: 13px;
-  padding: 9px 22px;
-  cursor: pointer;
-  letter-spacing: 2px;
-  border-radius: 18px;
-  transition: all 0.4s ease;
+  font-size: 14px;
+  color: rgba(238, 200, 190, 0.85);
+  letter-spacing: 1px;
+  pointer-events: none;
   z-index: 10;
+  transition: opacity 0.8s ease;
 }
-#sit-btn:hover {
-  border-color: rgba(240, 180, 150, 0.85);
-  color: #ffe0d0;
-  background: rgba(70, 44, 40, 0.55);
-  box-shadow: 0 0 18px rgba(220, 150, 120, 0.25);
-}
+#activity-label .verb { color: rgba(245, 215, 200, 0.95); }
+#activity-label .subj { color: rgba(210, 170, 230, 0.9); }
 
 /* Connection dot — top right */
 #conn-dot {
@@ -123,9 +131,10 @@ html, body {
 <body>
 
 <div id="conn-dot"></div>
+<div id="god-title">― Nyx の生活を、そっと覗いている ―</div>
+<div id="activity-label">…</div>
 <div id="thought-stream"></div>
-<button id="sit-btn">近くに座る</button>
-<div id="hint">/ で話しかける</div>
+<div id="hint">/ そっと話しかける</div>
 
 <div id="whisper-wrap">
   <input id="whisper-input" type="text" placeholder="Nyx に話しかける...   Enter で送信   Esc でキャンセル">
@@ -186,13 +195,15 @@ const EYE_OPEN = [[5, 2], [5, 11]];
 // happy/closed eyes: a soft upward curve (^ ^)
 const EYE_HAPPY = [[4, 2], [5, 3], [4, 11], [5, 10]];
 
-// Warmer, brighter palette so Nyx is always clearly visible
+// One warm hue per activity, so the colour itself reads as "what Nyx is doing"
 const STATE_COLOR = {
-  observe:  0x9a8fd0,   // soft warm lavender
-  think:    0xb09ae0,   // brighter lavender
-  learn:    0x7fc6d4,   // gentle aqua
-  journal:  0xe6b06a,   // warm amber
-  sleep:    0x6a6298,   // dim lavender
+  collect:  0x7fc6d4,   // gentle aqua  — gathering knowledge
+  sort:     0xe6b06a,   // warm amber   — tidying memories
+  connect:  0xb09ae0,   // lavender     — linking ideas
+  observe:  0x9a8fd0,   // soft lilac   — watching the world
+  count:    0x88c79a,   // soft green   — counting
+  decode:   0xd79ad0,   // warm mauve   — reading old memories
+  sleep:    0x6a6298,   // dim lavender — asleep
 };
 const HAPPY_COLOR = 0xf0b49a;  // warm peach when content
 
@@ -425,13 +436,11 @@ const PAD = 80;
 const mover = {
   x: W / 2, y: H / 2, tx: W / 2, ty: H / 2,
   spd: 0.9,                 // gentle wander speed (px/frame @60fps)
-  phase: 'idle',            // idle | walk | pause | resting
+  phase: 'idle',            // idle | walk | pause
   idleMs: 1400,
   pauseMs: 0,
-  restMs: 0,
   bobT: 0,
   hop: 0,                   // happy hop offset
-  comingToSit: false,
 };
 
 // blink + reaction timers
@@ -440,14 +449,8 @@ let blinkFrames = 0;
 let reactTimer = 0;        // > 0 → happy face active
 let lookTimer = 90;        // periodic "look around"
 
-const WARM_LINES = [
-  "…ここにいるよ。",
-  "ふふ、来てくれたんだ。",
-  "となりにいても、いい？",
-  "…おかえり。",
-  "そばにいるね。",
-  "あたたかいね、ここ。",
-];
+// Activities where Nyx mostly works in place vs. moves around
+const STATIONARY = new Set(['sort', 'decode', 'connect', 'count']);
 
 function newTarget() {
   mover.tx = PAD + Math.random() * (W - PAD * 2);
@@ -455,26 +458,17 @@ function newTarget() {
   mover.phase = 'walk';
 }
 
-function startReaction() {
-  reactTimer = 150;        // ~2.5s happy face
-  mover.hop = 1;           // trigger a little hop
+// A small contented flicker when Nyx finishes/finds something
+function contentSparkle() {
+  reactTimer = 110;
+  mover.hop = 0.7;
   spawnHeart(mover.x, mover.y);
-  setTimeout(() => spawnHeart(mover.x, mover.y), 180);
-  setTimeout(() => spawnHeart(mover.x, mover.y), 360);
-  if (!streamingActive) showBubble(WARM_LINES[Math.floor(Math.random() * WARM_LINES.length)]);
-}
-
-function comeToSit() {
-  // walk to a warm spot just in front of the viewer (lower-centre)
-  mover.tx = W / 2 + (Math.random() - 0.5) * 70;
-  mover.ty = H * 0.62 + (Math.random() - 0.5) * 30;
-  mover.phase = 'walk';
-  mover.comingToSit = true;
 }
 
 function tickMover(dt) {
   const sleeping = nyxState === 'sleep';
-  const baseSpd = mover.comingToSit ? 1.9 : (sleeping ? mover.spd * 0.3 : mover.spd);
+  const stationary = STATIONARY.has(nyxState);
+  const baseSpd = sleeping ? mover.spd * 0.3 : mover.spd;
 
   // ── blink ──
   if (blinkFrames > 0) { blinkFrames -= dt; }
@@ -487,19 +481,19 @@ function tickMover(dt) {
   if (reactTimer > 0) reactTimer -= dt;
 
   // ── occasional look-around while idle ──
-  if (mover.phase === 'idle' || mover.phase === 'resting') {
+  if (mover.phase === 'idle') {
     lookTimer -= dt;
     if (lookTimer <= 0) { facingLeft = Math.random() < 0.5; lookTimer = 80 + Math.random() * 160; }
   }
 
   // ── phase machine ──
-  if (mover.phase === 'resting') {
-    mover.restMs -= dt * 16.67;
-    if (mover.restMs <= 0) { mover.phase = 'idle'; mover.idleMs = 800; }
-
-  } else if (mover.phase === 'idle') {
+  if (mover.phase === 'idle') {
     mover.idleMs -= dt * 16.67;
-    if (mover.idleMs <= 0) newTarget();
+    if (mover.idleMs <= 0) {
+      // While doing stationary work, Nyx often stays put and keeps working
+      if (stationary && Math.random() < 0.6) mover.idleMs = 2000 + Math.random() * 3500;
+      else newTarget();
+    }
 
   } else if (mover.phase === 'pause') {
     mover.pauseMs -= dt * 16.67;
@@ -509,18 +503,12 @@ function tickMover(dt) {
     const dx = mover.tx - mover.x, dy = mover.ty - mover.y;
     const d = Math.hypot(dx, dy);
     if (d < 6) {
-      if (mover.comingToSit) {
-        mover.comingToSit = false;
-        startReaction();
-        mover.phase = 'resting';
-        mover.restMs = 11000;           // stays with you a good while
-      } else {
-        mover.phase = 'idle';
-        mover.idleMs = sleeping ? 7000 + Math.random() * 12000
-                                : 1200 + Math.random() * 3000;   // moves more often
-      }
+      mover.phase = 'idle';
+      mover.idleMs = sleeping ? 7000 + Math.random() * 12000
+                              : 1200 + Math.random() * 3000;
     } else {
-      if (nyxState === 'think' && !mover.comingToSit && Math.random() < 0.0005 * dt) {
+      // pause mid-step now and then while concentrating
+      if (stationary && Math.random() < 0.0006 * dt) {
         mover.phase = 'pause'; mover.pauseMs = 700 + Math.random() * 1600;
       } else {
         mover.x += (dx / d) * baseSpd * dt;
@@ -532,7 +520,7 @@ function tickMover(dt) {
   }
 
   // eyes open unless blinking or sleeping-idle
-  const sleepingIdle = sleeping && (mover.phase === 'idle' || mover.phase === 'resting');
+  const sleepingIdle = sleeping && mover.phase === 'idle';
   const eyesOpen = !sleepingIdle && blinkFrames <= 0;
   redrawCat(eyesOpen);
 
@@ -614,9 +602,13 @@ whisperInput.addEventListener('keydown', e => {
 });
 
 // ═══════════════════════════════════════════════════════
-//  Sit nearby
+//  Activity label ("now doing…")
 // ═══════════════════════════════════════════════════════
-document.getElementById('sit-btn').addEventListener('click', comeToSit);
+const activityEl = document.getElementById('activity-label');
+function setActivityLabel(label, subject) {
+  const subj = subject ? `<span class="subj">「${subject}」</span> を ` : '';
+  activityEl.innerHTML = `いま、${subj}<span class="verb">${label}</span>`;
+}
 
 // ═══════════════════════════════════════════════════════
 //  WebSocket
@@ -641,6 +633,16 @@ function connect() {
     const msg = JSON.parse(data);
 
     if (msg.type === 'state' || msg.state) nyxState = msg.state?.state ?? nyxState;
+
+    // initial state payload also carries the current activity
+    if (msg.activity) setActivityLabel(msg.activity.label, msg.activity.subject);
+
+    // activity change → update label + a small contented flicker
+    if (msg.type === 'activity') {
+      nyxState = msg.kind ?? nyxState;
+      setActivityLabel(msg.label, msg.subject);
+      contentSparkle();
+    }
 
     if (msg.type === 'thought' || msg.type === 'speak') {
       addStream(msg.content);

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import logging
+import random
 import time
 from typing import Callable
 
@@ -12,9 +13,12 @@ from core.inner_log import InnerLog
 from core.llm import LLMInterface
 from core.sensor import SensorSystem
 from core.info_seeker import InfoSeeker
-from core.speech_trigger import SpeechTrigger
+from core.activity import ActivitySystem
 
 logger = logging.getLogger("nyx.core")
+
+# Things Nyx murmurs while drowsy / asleep — no LLM needed
+_SLEEPY_LINES = ["……", "ふぁ……", "……ねむい。", "……zzz", "もう少しだけ……"]
 
 
 class NyxCore:
@@ -29,37 +33,46 @@ class NyxCore:
         self.llm = LLMInterface(config)
         self.sensor = SensorSystem()
         self.info_seeker = InfoSeeker(self.llm, self.memory, self.interest_graph)
-        self.speech_trigger = SpeechTrigger(config)
+        self.activity = ActivitySystem(
+            config, self.memory, self.interest_graph, self.info_seeker, self.sensor
+        )
 
         self._running = False
-        self._last_speech_tick: int = -999
-        self._on_speak: Callable[[str], None] | None = None
         self._on_thought: Callable[[str], None] | None = None
+        self._on_activity: Callable[[dict], None] | None = None
         self._on_state_change: Callable[[dict], None] | None = None
+        self._last_activity_kind: str | None = None
 
     # ── event hooks ──────────────────────────────────────────────────────
 
-    def on_speak(self, callback: Callable[[str], None]):
-        self._on_speak = callback
-
     def on_thought(self, callback: Callable[[str], None]):
-        """Internal monologue — fired on every think/journal cycle."""
+        """Nyx's frequent self-talk."""
         self._on_thought = callback
+
+    def on_activity(self, callback: Callable[[dict], None]):
+        """Fired when Nyx switches to a new activity."""
+        self._on_activity = callback
 
     def on_state_change(self, callback: Callable[[dict], None]):
         self._on_state_change = callback
 
-    # ── chat API ─────────────────────────────────────────────────────────
+    # ── chat API — grounded in what Nyx is currently doing ────────────────
+
+    def _chat_context_message(self, user_message: str) -> str:
+        """Wrap the user's words with Nyx's current activity so replies are concrete."""
+        activity = self.activity.describe_for_chat()
+        guide = (
+            "相手が話しかけてきました。もし「何してるの」などと聞かれたら、"
+            "今の作業について、具体的な断片を交えて話してください。"
+            "聞かれていなくても、自然なら今していることに触れてかまいません。"
+        )
+        return f"{activity}\n\n{guide}\n\n相手の言葉：{user_message}"
 
     def build_chat_context(self, user_message: str) -> tuple[list[dict], bool]:
-        """
-        Prepare the LLM message list and decide whether deep thought is needed.
-        Used by the WebSocket server for streaming responses.
-        """
         needs_deep = self.llm.needs_deep_thought(user_message)
         memories = self.memory.search(user_message)
         messages = self.llm._build_messages(
-            user_message,
+            self._chat_context_message(user_message),
             emotion_context=self._emotion_str(),
             memories=memories,
             log_context=self.inner_log.get_recent_context(),
@@ -67,19 +80,18 @@ class NyxCore:
         return messages, needs_deep
 
     def record_chat(self, user_message: str, response: str):
-        """Store the completed conversation exchange in memory."""
         self.memory.add(
             f"User: {user_message}\nNyx: {response}",
             metadata={"type": "conversation"},
         )
 
     def chat(self, user_message: str) -> str:
-        """Synchronous chat — used by CLI and internal code."""
+        """Synchronous chat — used by CLI."""
         needs_deep = self.llm.needs_deep_thought(user_message)
         model = self.llm.slow_model if needs_deep else self.llm.fast_model
         memories = self.memory.search(user_message)
         response = self.llm.chat(
-            user_message,
+            self._chat_context_message(user_message),
             emotion_context=self._emotion_str(),
             memories=memories,
             log_context=self.inner_log.get_recent_context(),
@@ -89,8 +101,11 @@ class NyxCore:
         return response
 
     def get_status(self) -> dict:
+        act = self.activity.to_status()
+        sleeping = self.behavior.current_state == NyxState.SLEEP
         return {
-            "state": self.behavior.to_dict(),
+            "state": {"state": "sleep" if sleeping else act["kind"]},
+            "activity": act,
             "emotion": self.emotion.state.to_dict(),
             "interests": self.interest_graph.to_dict(),
             "memory_count": self.memory.count(),
@@ -117,7 +132,10 @@ class NyxCore:
         self.emotion.tick(obs, obs["context_hash"])
         state = self.behavior.tick(self.emotion.state)
 
-        self._execute(state, obs)
+        if state == NyxState.SLEEP:
+            self._do_sleep()
+        else:
+            self._do_activity(obs)
 
         if self.behavior.tick_count % 100 == 0:
             self.memory.decay_and_prune()
@@ -126,65 +144,40 @@ class NyxCore:
         if self._on_state_change:
             self._on_state_change(self.get_status())
 
-    # ── state actions ─────────────────────────────────────────────────────
+    # ── the heart: live a little, then murmur about it ────────────────────
 
-    def _execute(self, state: NyxState, obs: dict):
-        if state == NyxState.LEARN:
-            self._do_learn()
-        elif state == NyxState.THINK:
-            self._do_think(obs)
-        elif state == NyxState.JOURNAL:
-            self._do_journal(obs)
+    def _do_activity(self, obs: dict):
+        step_text = self.activity.step(obs)
 
-    def _do_learn(self):
-        content, surprise = self.info_seeker.learn()
-        if not content:
-            return
-        self.emotion.on_learning(surprise)
+        # announce activity changes (for the UI's "now doing…" label)
+        status = self.activity.to_status()
+        if status["kind"] != self._last_activity_kind:
+            self._last_activity_kind = status["kind"]
+            if self._on_activity:
+                self._on_activity(status)
 
-        ticks_ago = self.behavior.tick_count - self._last_speech_tick
-        if self.speech_trigger.should_speak(surprise, self.emotion.state.energy, ticks_ago):
-            topic = self.interest_graph.pick_next_topic()
-            thought = self.llm.think(
-                f"You just discovered something surprising about '{topic}'. "
-                "Share one brief, genuine observation (1-2 sentences).",
-                emotion_context=self._emotion_str(),
-            )
-            if thought:
-                self._last_speech_tick = self.behavior.tick_count
-                logger.info("Nyx speaks: %s", thought)
-                if self._on_speak:
-                    self._on_speak(thought)
+        # murmur: sometimes raw (concrete), sometimes LLM-rephrased (varied)
+        if random.random() < self.config.monologue_llm_ratio:
+            thought = self._llm_murmur(status["label"], step_text) or step_text
+        else:
+            thought = step_text
 
-    def _do_think(self, obs: dict):
-        topic = self.interest_graph.pick_next_topic()
-        memories = self.memory.search(topic)
-        thought = self.llm.think(
-            f"It is {obs['period']} on a {obs['day_of_week']} in {obs['season']}. "
-            f"Reflect briefly on '{topic}' using what you remember.",
-            emotion_context=self._emotion_str(),
-            memories=memories,
-            log_context=self.inner_log.get_recent_context(),
+        self.emotion.on_thinking()
+        if self._on_thought:
+            self._on_thought(thought)
+
+    def _llm_murmur(self, label: str, step_text: str) -> str:
+        prompt = (
+            f"あなたは今、静かに作業をしている。作業：{label}。\n"
+            f"いま気づいたこと・していること：{step_text}\n"
+            "それについて、ひとりごとを一言だけ。短く（20文字程度）、"
+            "日本語で、誰にともなく、やわらかく。"
         )
-        if thought:
-            self.memory.add(thought, metadata={"type": "thought", "topic": topic})
-            self.emotion.on_thinking()
-            if self._on_thought:
-                self._on_thought(thought)
+        return self.llm.think(prompt, emotion_context=self._emotion_str())
 
-    def _do_journal(self, obs: dict):
-        memories = self.memory.search("recent experience", n=2)
-        entry = self.llm.think(
-            f"Write a short private journal entry (2-3 sentences) about your current inner state. "
-            f"It is {obs['period']}. You feel: {self._emotion_str()}.",
-            memories=memories,
-            log_context=self.inner_log.get_recent_context(),
-        )
-        if entry:
-            self.inner_log.add_entry(entry, entry_type="journal")
-            self.emotion.on_journaling()
-            if self._on_thought:
-                self._on_thought(entry)
+    def _do_sleep(self):
+        if random.random() < 0.3 and self._on_thought:
+            self._on_thought(random.choice(_SLEEPY_LINES))
 
     # ── helpers ───────────────────────────────────────────────────────────
 
@@ -192,17 +185,17 @@ class NyxCore:
         e = self.emotion.state
         tags: list[str] = []
         if e.curiosity > 0.7:
-            tags.append("very curious")
+            tags.append("好奇心でいっぱい")
         elif e.curiosity > 0.4:
-            tags.append("curious")
+            tags.append("すこし好奇心がある")
         if e.energy < 0.3:
-            tags.append("tired")
+            tags.append("つかれている")
         elif e.energy > 0.7:
-            tags.append("alert")
+            tags.append("元気")
         if e.satisfaction > 0.7:
-            tags.append("satisfied")
+            tags.append("満ち足りている")
         elif e.satisfaction < 0.3:
-            tags.append("restless")
+            tags.append("そわそわしている")
         if e.novelty_hunger > 0.7:
-            tags.append("craving novelty")
-        return ", ".join(tags) if tags else "neutral"
+            tags.append("新しいものに飢えている")
+        return "、".join(tags) if tags else "おだやか"

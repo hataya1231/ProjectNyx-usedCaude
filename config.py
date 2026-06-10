@@ -15,7 +15,14 @@ class NyxConfig:
     deep_thought_char_threshold: int = 50
 
     # Behavior loop
-    tick_interval_seconds: int = 30
+    tick_interval_seconds: int = 18    # frequent, lively monologue
+
+    # Monologue: fraction of ticks where the LLM rephrases the concrete step
+    # (the rest emit the raw concrete observation, guaranteeing specificity)
+    monologue_llm_ratio: float = 0.55
+    # How many concrete steps each activity runs before Nyx moves on
+    activity_min_steps: int = 3
+    activity_max_steps: int = 6
 
     # Emotion (rates per tick)
     curiosity_rise_rate: float = 0.03

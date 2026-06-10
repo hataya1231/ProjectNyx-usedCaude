@@ -39,20 +39,20 @@ def _threadsafe_broadcast(data: dict):
         asyncio.run_coroutine_threadsafe(_broadcast(data), _loop)
 
 
-def _on_speak(thought: str):
-    _threadsafe_broadcast({"type": "speak", "content": thought})
-
-
 def _on_thought(thought: str):
     _threadsafe_broadcast({"type": "thought", "content": thought})
+
+
+def _on_activity(status: dict):
+    _threadsafe_broadcast({"type": "activity", **status})
 
 
 def _on_state_change(status: dict):
     _threadsafe_broadcast({"type": "state", **status})
 
 
-nyx.on_speak(_on_speak)
 nyx.on_thought(_on_thought)
+nyx.on_activity(_on_activity)
 nyx.on_state_change(_on_state_change)
 
 
