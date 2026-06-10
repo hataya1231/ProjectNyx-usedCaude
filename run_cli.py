@@ -16,27 +16,29 @@ logging.basicConfig(
 )
 
 
-def on_speak(thought: str):
-    print(f"\n\033[33m[Nyx — unprompted]\033[0m {thought}\n>>> ", end="", flush=True)
+_TONE_COLOR = {
+    "normal":  "\033[37m",   # white
+    "recall":  "\033[36m",   # cyan — remembering
+    "dream":   "\033[35m",   # magenta — dreaming
+    "special": "\033[33m",   # yellow — rare moment
+}
 
 
-def on_state_change(status: dict):
-    s = status["state"]["state"]
-    e = status["emotion"]
-    print(
-        f"\r[{s:8}] "
-        f"cur={e['curiosity']:.2f} "
-        f"nrg={e['energy']:.2f} "
-        f"sat={e['satisfaction']:.2f} "
-        f"nov={e['novelty_hunger']:.2f}   ",
-        end="",
-        flush=True,
-    )
+def on_thought(thought: str, tone: str = "normal"):
+    color = _TONE_COLOR.get(tone, "\033[37m")
+    tag = "" if tone == "normal" else f"({tone}) "
+    print(f"\n{color}[Nyx] {tag}{thought}\033[0m\n>>> ", end="", flush=True)
+
+
+def on_activity(status: dict):
+    focus = f" / 夢中: {status['focus']}" if status.get("focus") else ""
+    print(f"\n\033[90m— いま: {status['label']}（{status['subject']}）{focus} —\033[0m\n>>> ",
+          end="", flush=True)
 
 
 nyx = NyxCore()
-nyx.on_speak(on_speak)
-nyx.on_state_change(on_state_change)
+nyx.on_thought(on_thought)
+nyx.on_activity(on_activity)
 
 thread = threading.Thread(target=nyx.run, daemon=True, name="nyx-core")
 thread.start()

@@ -162,6 +162,29 @@ app.view.style.left = '0';
 app.view.style.zIndex = '1';
 
 // ═══════════════════════════════════════════════════════
+//  ⑤ Flame: a clock + non-repeating noise (sum of sines at
+//  irrational frequency ratios → smooth, never loops exactly).
+//  Everything alive is driven through this, so a single glance
+//  still shows continuous, organic micro-variation.
+// ═══════════════════════════════════════════════════════
+let T = 0;  // seconds, advanced in the main ticker
+function fnoise(t, seed = 0) {
+  return (
+    Math.sin(t * 0.70 + seed * 1.3) * 0.50 +
+    Math.sin(t * 1.30 + seed * 2.1) * 0.30 +
+    Math.sin(t * 2.236 + seed * 0.7) * 0.20
+  ); // range ≈ [-1, 1]
+}
+const lerpColor = (a, b, t) => {
+  const ar = (a >> 16) & 255, ag = (a >> 8) & 255, ab = a & 255;
+  const br = (b >> 16) & 255, bg = (b >> 8) & 255, bb = b & 255;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
+};
+
+// ═══════════════════════════════════════════════════════
 //  Cat pixel art  (14 cols × 19 rows) — eyes drawn dynamically
 // ═══════════════════════════════════════════════════════
 const PX = 5;
@@ -211,13 +234,14 @@ const HAPPY_COLOR = 0xf0b49a;  // warm peach when content
 //  Layers
 // ═══════════════════════════════════════════════════════
 const fireflyLayer = new PIXI.Container();
+const starLayer    = new PIXI.Container();   // ③ accumulated traces of Nyx's work
 const glowLayer    = new PIXI.Container();
 const shadowLayer  = new PIXI.Container();
 const heartLayer   = new PIXI.Container();
 const nyxCont      = new PIXI.Container();
 const zzzLayer     = new PIXI.Container();
 const bubbleLayer  = new PIXI.Container();
-app.stage.addChild(fireflyLayer, glowLayer, shadowLayer, heartLayer, nyxCont, zzzLayer, bubbleLayer);
+app.stage.addChild(fireflyLayer, starLayer, glowLayer, shadowLayer, heartLayer, nyxCont, zzzLayer, bubbleLayer);
 
 nyxCont.x = W / 2;
 nyxCont.y = H / 2;
@@ -351,6 +375,78 @@ function tickHearts(dt) {
   }
 }
 
+// ── ④ special-moment pulse: an expanding ring around Nyx ──
+const rings = [];
+function specialPulse() {
+  const g = new PIXI.Graphics();
+  heartLayer.addChild(g);
+  rings.push({ g, r: SPR_H * 0.4, life: 1 });
+}
+function tickRings(dt) {
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const p = rings[i];
+    p.r += dt * 1.6;
+    p.life -= dt * 0.012;
+    p.g.clear();
+    p.g.lineStyle(2, 0xffd98a, Math.max(0, p.life) * 0.8);
+    p.g.drawCircle(0, 0, p.r);
+    p.g.x = nyxCont.x; p.g.y = nyxCont.y;
+    if (p.life <= 0) { heartLayer.removeChild(p.g); rings.splice(i, 1); }
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+//  ③ Star field — every finished activity leaves a star.
+//  Persisted in localStorage, so Nyx's world fills up over days.
+// ═══════════════════════════════════════════════════════
+const STAR_KEY = 'nyx_stars_v1';
+const STAR_MAX = 320;
+const KIND_COLOR = {
+  collect: 0x7fc6d4, sort: 0xe6b06a, connect: 0xb09ae0,
+  observe: 0x9a8fd0, count: 0x88c79a, decode: 0xd79ad0,
+};
+let stars = [];
+try { stars = JSON.parse(localStorage.getItem(STAR_KEY) || '[]'); } catch (e) { stars = []; }
+
+function persistStars() {
+  try { localStorage.setItem(STAR_KEY, JSON.stringify(stars.slice(-STAR_MAX))); } catch (e) {}
+}
+function makeStarGfx(s) {
+  const g = new PIXI.Graphics();
+  const col = KIND_COLOR[s.kind] || 0xffffff;
+  g.beginFill(col, 1);
+  // little 4-point diamond
+  g.moveTo(0, -2.4); g.lineTo(1.6, 0); g.lineTo(0, 2.4); g.lineTo(-1.6, 0);
+  g.closePath(); g.endFill();
+  g.x = s.x * W; g.y = s.y * H;     // store normalized so it survives resize
+  g.alpha = 0.5;
+  starLayer.addChild(g);
+  s._g = g; s._seed = Math.random() * 100;
+}
+function addStar(kind, subject) {
+  const s = {
+    kind, subject: subject || '',
+    x: 0.08 + Math.random() * 0.84,
+    y: 0.10 + Math.random() * 0.52,   // upper "sky"
+    t: Date.now(),
+  };
+  stars.push(s);
+  while (stars.length > STAR_MAX) {
+    const old = stars.shift();
+    if (old._g) starLayer.removeChild(old._g);
+  }
+  makeStarGfx(s);
+  persistStars();
+}
+function tickStars() {
+  for (const s of stars) {
+    if (!s._g) continue;
+    s._g.alpha = 0.4 + (fnoise(T * 1.4, s._seed) + 1) * 0.22;  // twinkle
+    s._g.x = s.x * W; s._g.y = s.y * H;
+  }
+}
+stars.forEach(makeStarGfx);  // restore on load
+
 // ═══════════════════════════════════════════════════════
 //  ZZZ particles (sleep)
 // ═══════════════════════════════════════════════════════
@@ -382,11 +478,21 @@ function tickZzz(dt, sleeping, x, y) {
 // ═══════════════════════════════════════════════════════
 let bubble = null, bTimer = 0, bDuration = 0;
 
-function showBubble(text, permanent = false) {
+// tone → palette {bg, border, text, durMul}
+const TONE = {
+  normal:  { bg: 0x241820, border: 0x6a4a52, text: 0xf3e2e6, durMul: 1.0 },
+  recall:  { bg: 0x132026, border: 0x3a6a72, text: 0xcdeef0, durMul: 1.3 },  // remembering
+  dream:   { bg: 0x1e1630, border: 0x5a4a86, text: 0xe2d6f6, durMul: 1.6 },  // dreaming
+  special: { bg: 0x2e2410, border: 0xc89a3a, text: 0xffe7a8, durMul: 2.0 },  // rare moment
+};
+
+function showBubble(text, permanent = false, tone = 'normal') {
   if (bubble) { bubbleLayer.removeChild(bubble.ctr); bubble = null; }
-  const pad = 11, maxW = 260;
+  const pal = TONE[tone] || TONE.normal;
+  const pad = 11, maxW = 270;
   const style = new PIXI.TextStyle({
-    fontFamily: 'Courier New', fontSize: 13, fill: 0xf3e2e6,
+    fontFamily: 'Courier New', fontSize: tone === 'special' ? 14 : 13, fill: pal.text,
+    fontStyle: (tone === 'dream' || tone === 'special') ? 'italic' : 'normal',
     wordWrap: true, wordWrapWidth: maxW - pad * 2, lineHeight: 18,
   });
   const txt = new PIXI.Text(text, style);
@@ -395,11 +501,11 @@ function showBubble(text, permanent = false) {
   const bh = txt.height + pad * 2;
 
   const bg = new PIXI.Graphics();
-  bg.beginFill(0x241820, 0.95);
-  bg.lineStyle(1, 0x6a4a52, 0.85);
+  bg.beginFill(pal.bg, 0.95);
+  bg.lineStyle(1, pal.border, 0.9);
   bg.drawRoundedRect(0, 0, bw, bh, 10);
   bg.endFill();
-  bg.beginFill(0x241820, 0.95); bg.lineStyle(0);
+  bg.beginFill(pal.bg, 0.95); bg.lineStyle(0);
   bg.moveTo(bw / 2 - 6, bh); bg.lineTo(bw / 2 + 6, bh); bg.lineTo(bw / 2, bh + 8);
   bg.closePath(); bg.endFill();
 
@@ -408,10 +514,13 @@ function showBubble(text, permanent = false) {
   ctr.alpha = 0;
   bubbleLayer.addChild(ctr);
 
-  const readMs = Math.max(180, text.length * 60);
-  bubble = { ctr, txt, bw, bh, fading: false, permanent };
+  const readMs = Math.max(180, text.length * 60) * pal.durMul;
+  bubble = { ctr, txt, bw, bh, fading: false, permanent, tone };
   bTimer = 0;
   bDuration = permanent ? Infinity : readMs;
+
+  // special / dream get an extra flourish
+  if (tone === 'special') specialPulse();
 }
 function updateBubbleText(text) { if (bubble) bubble.txt.text = text; }
 function finishBubble() { if (!bubble) return; bTimer = 0; bDuration = 200; bubble.permanent = false; }
@@ -524,6 +633,14 @@ function tickMover(dt) {
   const eyesOpen = !sleepingIdle && blinkFrames <= 0;
   redrawCat(eyesOpen);
 
+  // ── ⑤ flame micro-variation (always alive, never repeats) ──
+  const body = nyxCont.children[0];
+  if (body) {
+    // brightness shimmer — gentle, like a low flame
+    const sh = 0.86 + (fnoise(T, 4) + 1) * 0.07;        // ~0.86..1.0
+    const lv = Math.round(255 * Math.min(1, sh));
+    body.tint = (lv << 16) | (lv << 8) | lv;
+  }
   // hop decay (cute bounce on reaction)
   if (mover.hop > 0) mover.hop = Math.max(0, mover.hop - dt * 0.04);
   const hopOffset = Math.sin((1 - mover.hop) * Math.PI) * 14 * mover.hop;
@@ -532,12 +649,23 @@ function tickMover(dt) {
     ? Math.abs(Math.sin(mover.bobT)) * 2.6
     : Math.sin(mover.bobT * 0.25) * 0.8;
 
-  nyxCont.x = mover.x;
-  nyxCont.y = mover.y + bob - hopOffset;
+  // breathing squash/stretch + tiny idle sway via noise
+  const breathe = fnoise(T * 0.9, 11) * 0.035;
+  const swayX = fnoise(T * 0.6, 21) * 1.6;
+  const swayY = fnoise(T * 0.5, 31) * 1.2;
+  nyxCont.x = mover.x + swayX;
+  nyxCont.y = mover.y + bob - hopOffset + swayY;
+  nyxCont.scale.x = (facingLeft ? -1 : 1) * (1 + breathe);
+  nyxCont.scale.y = 1 - breathe;
 
-  // glow + shadow follow
-  glow.x = mover.x; glow.y = mover.y;
-  glow.scale.set(1 + Math.sin(mover.bobT * 0.4) * 0.06 + (reactTimer > 0 ? 0.18 : 0));
+  // glow flickers like a candle: layered fast + slow noise, warm hue drift
+  glow.x = nyxCont.x; glow.y = nyxCont.y;
+  const flick = 1 + fnoise(T * 2.7, 1) * 0.10 + fnoise(T * 6.1, 2) * 0.05
+                  + (reactTimer > 0 ? 0.20 : 0);
+  glow.scale.set(flick);
+  glow.alpha = 0.8 + fnoise(T * 3.3, 5) * 0.2;
+  glow.tint = lerpColor(0xffc89a, 0xff9a7a, (fnoise(T * 0.4, 8) + 1) / 2);
+
   shadow.x = mover.x; shadow.y = mover.y + SPR_H / 2 + 2;
   shadow.scale.set(1 - hopOffset * 0.012, 1);
   shadow.alpha = 0.22 - hopOffset * 0.004;
@@ -551,9 +679,15 @@ setTimeout(newTarget, 1200);
 const streamEl = document.getElementById('thought-stream');
 const streamPool = [];
 const MAX_S = 5;
-function addStream(text) {
+const STREAM_TONE = {
+  recall:  'rgba(160, 220, 228, 0.92)',
+  dream:   'rgba(200, 180, 240, 0.92)',
+  special: 'rgba(245, 215, 150, 0.95)',
+};
+function addStream(text, tone = 'normal') {
   const el = document.createElement('div');
   el.className = 't-entry';
+  if (STREAM_TONE[tone]) el.style.color = STREAM_TONE[tone];
   el.textContent = text.length > 60 ? text.slice(0, 60) + '…' : text;
   streamEl.prepend(el);
   streamPool.push(el);
@@ -610,6 +744,14 @@ function setActivityLabel(label, subject) {
   activityEl.innerHTML = `いま、${subj}<span class="verb">${label}</span>`;
 }
 
+// ① obsession shown in the god-view title
+const titleEl = document.getElementById('god-title');
+function setFocus(focus) {
+  titleEl.textContent = focus
+    ? `― Nyx の生活｜夢中なこと：${focus} ―`
+    : '― Nyx の生活を、そっと覗いている ―';
+}
+
 // ═══════════════════════════════════════════════════════
 //  WebSocket
 // ═══════════════════════════════════════════════════════
@@ -634,19 +776,25 @@ function connect() {
 
     if (msg.type === 'state' || msg.state) nyxState = msg.state?.state ?? nyxState;
 
-    // initial state payload also carries the current activity
+    // initial state payload also carries the current activity + focus
     if (msg.activity) setActivityLabel(msg.activity.label, msg.activity.subject);
+    if ('focus' in msg && msg.type !== 'activity') setFocus(msg.focus);
 
     // activity change → update label + a small contented flicker
     if (msg.type === 'activity') {
       nyxState = msg.kind ?? nyxState;
       setActivityLabel(msg.label, msg.subject);
+      setFocus(msg.focus);
       contentSparkle();
     }
 
+    // ③ a finished piece of work leaves a star in the world
+    if (msg.type === 'artifact') addStar(msg.kind, msg.subject);
+
     if (msg.type === 'thought' || msg.type === 'speak') {
-      addStream(msg.content);
-      if (!streamingActive) showBubble(msg.content);
+      const tone = msg.tone || 'normal';
+      addStream(msg.content, tone);
+      if (!streamingActive) showBubble(msg.content, false, tone);
     }
     if (msg.type === 'deep_ack') showBubble(msg.content, true);
 
@@ -679,9 +827,12 @@ window.addEventListener('resize', () => {
 //  Main loop
 // ═══════════════════════════════════════════════════════
 app.ticker.add(delta => {
+  T += delta * 0.016;          // ⑤ advance the flame clock (~seconds)
   tickFlies(delta);
+  tickStars();
   tickMover(delta);
   tickHearts(delta);
+  tickRings(delta);
   tickBubble(delta, nyxCont.x, nyxCont.y);
   tickZzz(delta, nyxState === 'sleep', nyxCont.x, nyxCont.y);
 });

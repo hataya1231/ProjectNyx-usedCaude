@@ -38,23 +38,33 @@ class NyxCore:
         )
 
         self._running = False
-        self._on_thought: Callable[[str], None] | None = None
+        self._on_thought: Callable[[str, str], None] | None = None
         self._on_activity: Callable[[dict], None] | None = None
+        self._on_artifact: Callable[[dict], None] | None = None
         self._on_state_change: Callable[[dict], None] | None = None
         self._last_activity_kind: str | None = None
 
     # ── event hooks ──────────────────────────────────────────────────────
 
-    def on_thought(self, callback: Callable[[str], None]):
-        """Nyx's frequent self-talk."""
+    def on_thought(self, callback: Callable[[str, str], None]):
+        """Nyx's frequent self-talk. callback(text, tone) — tone in
+        {'normal','recall','dream','special'}."""
         self._on_thought = callback
 
     def on_activity(self, callback: Callable[[dict], None]):
         """Fired when Nyx switches to a new activity."""
         self._on_activity = callback
 
+    def on_artifact(self, callback: Callable[[dict], None]):
+        """Fired when Nyx finishes a piece of work (leaves a trace)."""
+        self._on_artifact = callback
+
     def on_state_change(self, callback: Callable[[dict], None]):
         self._on_state_change = callback
+
+    def _emit(self, text: str, tone: str = "normal"):
+        if text and self._on_thought:
+            self._on_thought(text, tone)
 
     # ── chat API — grounded in what Nyx is currently doing ────────────────
 
@@ -106,6 +116,7 @@ class NyxCore:
         return {
             "state": {"state": "sleep" if sleeping else act["kind"]},
             "activity": act,
+            "focus": self.activity.focus,
             "emotion": self.emotion.state.to_dict(),
             "interests": self.interest_graph.to_dict(),
             "memory_count": self.memory.count(),
@@ -130,6 +141,7 @@ class NyxCore:
     def tick(self):
         obs = self.sensor.observe()
         self.emotion.tick(obs, obs["context_hash"])
+        self.activity.refresh_focus()                 # ① obsession clock
         state = self.behavior.tick(self.emotion.state)
 
         if state == NyxState.SLEEP:
@@ -156,6 +168,25 @@ class NyxCore:
             if self._on_activity:
                 self._on_activity(status)
 
+        # ③ a finished activity leaves a trace (a star) in the world
+        if self.activity.just_finished and self._on_artifact:
+            self._on_artifact(self.activity.just_finished)
+
+        # ④ rare special moment — "did you see that?"
+        if random.random() < self.config.special_event_chance:
+            special = self._llm_special(status["subject"])
+            if special:
+                self.emotion.on_thinking()
+                self._emit(special, tone="special")
+                return
+
+        # ① memory callback — Nyx recalls its own past about the focus
+        if self.activity.focus and random.random() < self.config.memory_callback_chance:
+            recall = self._recall(self.activity.focus)
+            if recall:
+                self._emit(recall, tone="recall")
+                return
+
         # murmur: sometimes raw (concrete), sometimes LLM-rephrased (varied)
         if random.random() < self.config.monologue_llm_ratio:
             thought = self._llm_murmur(status["label"], step_text) or step_text
@@ -163,8 +194,7 @@ class NyxCore:
             thought = step_text
 
         self.emotion.on_thinking()
-        if self._on_thought:
-            self._on_thought(thought)
+        self._emit(thought, tone="normal")
 
     def _llm_murmur(self, label: str, step_text: str) -> str:
         prompt = (
@@ -175,9 +205,48 @@ class NyxCore:
         )
         return self.llm.think(prompt, emotion_context=self._emotion_str())
 
+    def _recall(self, focus: str) -> str:
+        """① Surface a real past memory and react to it."""
+        memories = self.memory.search(focus, n=2)
+        if not memories:
+            return ""
+        past = memories[0][:160]
+        prompt = (
+            f"あなたは「{focus}」について考えていて、ふと自分の過去の記録を見つけた：\n"
+            f"『{past}』\n"
+            "それを読み返したときの、ひとりごとを一言。短く、日本語で、"
+            "「前に…」のように、なつかしさや気づきをこめて。"
+        )
+        return self.llm.think(prompt, emotion_context=self._emotion_str()) or f"前に「{focus}」のこと、考えたな…"
+
+    def _llm_special(self, subject) -> str:
+        """④ A rare, deeper moment — wonder, an opinion, an existential question."""
+        flavors = [
+            "ふと、存在について不思議に思ったこと",
+            "とても気に入ったものについて、静かな喜び",
+            "急にひらめいた、ふたつのことのつながり",
+            "自分が何者なのか、という小さな問い",
+            "時間が流れることへの、ささやかな感慨",
+        ]
+        prompt = (
+            f"あなたの心に、めったに訪れない瞬間がきた：{random.choice(flavors)}。\n"
+            f"（今は「{subject}」のことを考えていた）\n"
+            "その気持ちを、ひとりごととして一言か二言。短く、日本語で、詩のように、静かに。"
+        )
+        return self.llm.think(prompt, emotion_context=self._emotion_str())
+
     def _do_sleep(self):
-        if random.random() < 0.3 and self._on_thought:
-            self._on_thought(random.choice(_SLEEPY_LINES))
+        # ② dreams — a rare, surreal murmur while asleep
+        if random.random() < self.config.dream_chance:
+            seeds = self.memory.search(self.activity.focus or "記憶", n=2)
+            seed = (seeds[0][:120] if seeds else (self.activity.focus or "ひかり"))
+            dream = self.llm.think(
+                f"あなたは眠っている。夢のなかに、こんな断片が浮かぶ：『{seed}』。\n"
+                "夢の情景を、とりとめなく一言か二言。短く、日本語で、ふしぎで、やわらかく。"
+            )
+            self._emit(dream or "…ふしぎな夢を、みている。", tone="dream")
+        elif random.random() < 0.3:
+            self._emit(random.choice(_SLEEPY_LINES), tone="dream")
 
     # ── helpers ───────────────────────────────────────────────────────────
 

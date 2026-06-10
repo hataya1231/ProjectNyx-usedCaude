@@ -24,6 +24,16 @@ class NyxConfig:
     activity_min_steps: int = 3
     activity_max_steps: int = 6
 
+    # ── Watchability (never gets boring) ──
+    # ① Obsession: Nyx fixates on one theme for a while, then drifts
+    focus_min_ticks: int = 18
+    focus_max_ticks: int = 40
+    memory_callback_chance: float = 0.18   # chance to recall its own past
+    # ② Dreams while asleep
+    dream_chance: float = 0.22
+    # ④ Rare special moments ("did you see that?")
+    special_event_chance: float = 0.03
+
     # Emotion (rates per tick)
     curiosity_rise_rate: float = 0.03
     satisfaction_decay_rate: float = 0.01
