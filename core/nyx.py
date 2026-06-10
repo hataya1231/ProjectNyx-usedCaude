@@ -76,7 +76,7 @@ class NyxCore:
     def chat(self, user_message: str) -> str:
         """Synchronous chat — used by CLI and internal code."""
         needs_deep = self.llm.needs_deep_thought(user_message)
-        model = self.config.slow_model if needs_deep else self.config.fast_model
+        model = self.llm.slow_model if needs_deep else self.llm.fast_model
         memories = self.memory.search(user_message)
         response = self.llm.chat(
             user_message,

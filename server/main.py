@@ -91,7 +91,7 @@ async def ws_endpoint(ws: WebSocket):
             messages, needs_deep = await asyncio.get_event_loop().run_in_executor(
                 None, nyx.build_chat_context, user_message
             )
-            model = nyx.config.slow_model if needs_deep else nyx.config.fast_model
+            model = nyx.llm.slow_model if needs_deep else nyx.llm.fast_model
 
             # --- if deep thought: send acknowledgement first ---
             if needs_deep:

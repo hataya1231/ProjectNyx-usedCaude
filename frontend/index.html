@@ -7,7 +7,10 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
 <style>
 * { margin: 0; padding: 0; box-sizing: border-box; }
-html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
+html, body {
+  width: 100%; height: 100%; overflow: hidden;
+  background: radial-gradient(ellipse at 50% 42%, #15101e 0%, #0c0812 55%, #070509 100%);
+}
 
 /* Thought stream — bottom right */
 #thought-stream {
@@ -25,11 +28,11 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
   font-family: 'Courier New', monospace;
   font-size: 13px;
   line-height: 1.7;
-  color: rgba(190, 190, 230, 0.9);
+  color: rgba(228, 210, 224, 0.92);
   transition: opacity 1.2s ease;
   animation: fadeUp 0.7s ease;
 }
-.t-entry::before { content: '·  '; color: rgba(120, 120, 200, 0.7); }
+.t-entry::before { content: '⟡  '; color: rgba(220, 170, 150, 0.75); }
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -40,22 +43,23 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
   position: fixed;
   bottom: 32px;
   left: 32px;
-  background: rgba(10, 10, 30, 0.6);
-  border: 1px solid rgba(90, 90, 180, 0.55);
-  color: rgba(160, 160, 230, 0.9);
+  background: rgba(36, 24, 30, 0.55);
+  border: 1px solid rgba(210, 150, 130, 0.4);
+  color: rgba(235, 195, 180, 0.9);
   font-family: 'Courier New', monospace;
   font-size: 13px;
-  padding: 8px 20px;
+  padding: 9px 22px;
   cursor: pointer;
   letter-spacing: 2px;
-  border-radius: 2px;
-  transition: all 0.3s ease;
+  border-radius: 18px;
+  transition: all 0.4s ease;
   z-index: 10;
 }
 #sit-btn:hover {
-  border-color: rgba(120, 120, 240, 0.85);
-  color: #c8c8ff;
-  background: rgba(30, 30, 80, 0.5);
+  border-color: rgba(240, 180, 150, 0.85);
+  color: #ffe0d0;
+  background: rgba(70, 44, 40, 0.55);
+  box-shadow: 0 0 18px rgba(220, 150, 120, 0.25);
 }
 
 /* Connection dot — top right */
@@ -79,7 +83,7 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
   transform: translateX(-50%);
   font-family: 'Courier New', monospace;
   font-size: 12px;
-  color: rgba(130, 130, 180, 0.7);
+  color: rgba(200, 165, 175, 0.6);
   letter-spacing: 3px;
   pointer-events: none;
   z-index: 10;
@@ -101,19 +105,19 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
 #whisper-wrap.open { opacity: 1; pointer-events: all; }
 #whisper-input {
   width: 100%;
-  background: rgba(8, 8, 22, 0.95);
+  background: rgba(22, 14, 18, 0.95);
   border: none;
-  border-bottom: 1px solid rgba(100, 100, 200, 0.6);
-  color: rgba(210, 210, 245, 1.0);
+  border-bottom: 1px solid rgba(220, 160, 140, 0.55);
+  color: rgba(245, 225, 230, 1.0);
   font-family: 'Courier New', monospace;
   font-size: 14px;
   padding: 10px 0;
   outline: none;
   text-align: center;
   letter-spacing: 1px;
-  caret-color: rgba(160, 160, 240, 0.9);
+  caret-color: rgba(240, 180, 160, 0.9);
 }
-#whisper-input::placeholder { color: rgba(120, 120, 170, 0.6); font-size: 12px; }
+#whisper-input::placeholder { color: rgba(190, 150, 160, 0.55); font-size: 12px; }
 </style>
 </head>
 <body>
@@ -127,16 +131,17 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: #05050c; }
   <input id="whisper-input" type="text" placeholder="Nyx に話しかける...   Enter で送信   Esc でキャンセル">
 </div>
 
+
 <script>
 // ═══════════════════════════════════════════════════════
 //  PIXI setup
 // ═══════════════════════════════════════════════════════
-const W = window.innerWidth;
-const H = window.innerHeight;
+let W = window.innerWidth;
+let H = window.innerHeight;
 
 const app = new PIXI.Application({
   width: W, height: H,
-  backgroundColor: 0x05050c,
+  backgroundAlpha: 0,           // let the warm CSS gradient show through
   antialias: false,
   resolution: window.devicePixelRatio || 1,
   autoDensity: true,
@@ -145,242 +150,268 @@ document.body.appendChild(app.view);
 app.view.style.position = 'fixed';
 app.view.style.top = '0';
 app.view.style.left = '0';
+app.view.style.zIndex = '1';
 
 // ═══════════════════════════════════════════════════════
-//  Cat pixel art  (14 cols × 19 rows)
+//  Cat pixel art  (14 cols × 19 rows) — eyes drawn dynamically
 // ═══════════════════════════════════════════════════════
 const PX = 5;
 
-const SPRITE = {
-  normal: [
-    [0,0,1,0,0,0,0,0,0,0,0,1,0,0],
-    [0,1,1,1,0,0,0,0,0,0,1,1,1,0],
-    [1,1,1,1,1,0,0,0,0,1,1,1,1,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,0,1,1,1,1,1,1,1,1,0,1,0],  // eyes open
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,0,1,1,1,1,1,1,1,1,0,0,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
-    [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
-    [0,1,1,1,1,0,0,0,0,1,1,1,1,0],
-    [1,1,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,1,1,1,0,0,0,0,0,0,0,0,0,0],
-  ],
-  sleep: [
-    [0,0,1,0,0,0,0,0,0,0,0,1,0,0],
-    [0,1,1,1,0,0,0,0,0,0,1,1,1,0],
-    [1,1,1,1,1,0,0,0,0,1,1,1,1,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // eyes closed
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,1,1,1,1,1,1,1,1,0,0],
-    [0,0,0,1,1,1,1,1,1,1,1,0,0,0],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
-    [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
-    [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
-    [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
-    [0,1,1,1,1,0,0,0,0,1,1,1,1,0],
-    [1,1,0,0,0,0,0,0,0,0,0,0,0,0],
-    [0,1,1,1,0,0,0,0,0,0,0,0,0,0],
-  ],
-};
+const BODY = [
+  [0,0,1,0,0,0,0,0,0,0,0,1,0,0],
+  [0,1,1,1,0,0,0,0,0,0,1,1,1,0],
+  [1,1,1,1,1,0,0,0,0,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],  // eye row (filled here; gaps added when open)
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [0,0,1,1,1,1,1,1,1,1,1,1,0,0],
+  [0,0,0,1,1,1,1,1,1,1,1,0,0,0],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+  [0,1,1,1,1,1,1,1,1,1,1,1,1,0],
+  [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
+  [0,0,1,1,0,0,0,0,0,0,1,1,0,0],
+  [0,1,1,1,1,0,0,0,0,1,1,1,1,0],
+  [1,1,0,0,0,0,0,0,0,0,0,0,0,0],
+  [0,1,1,1,0,0,0,0,0,0,0,0,0,0],
+];
+const ROWS = BODY.length, COLS = BODY[0].length;
+const SPR_W = COLS * PX, SPR_H = ROWS * PX;
 
+// eye gap positions (row, col) — used when eyes are "open"
+const EYE_OPEN = [[5, 2], [5, 11]];
+// happy/closed eyes: a soft upward curve (^ ^)
+const EYE_HAPPY = [[4, 2], [5, 3], [4, 11], [5, 10]];
+
+// Warmer, brighter palette so Nyx is always clearly visible
 const STATE_COLOR = {
-  observe:  0x282868,
-  think:    0x3838a8,
-  learn:    0x1468a0,
-  journal:  0x906018,
-  sleep:    0x101828,
+  observe:  0x9a8fd0,   // soft warm lavender
+  think:    0xb09ae0,   // brighter lavender
+  learn:    0x7fc6d4,   // gentle aqua
+  journal:  0xe6b06a,   // warm amber
+  sleep:    0x6a6298,   // dim lavender
 };
+const HAPPY_COLOR = 0xf0b49a;  // warm peach when content
 
 // ═══════════════════════════════════════════════════════
-//  Background particles
+//  Layers
 // ═══════════════════════════════════════════════════════
-const bgLayer = new PIXI.Container();
-app.stage.addChild(bgLayer);
-const bgParts = [];
+const fireflyLayer = new PIXI.Container();
+const glowLayer    = new PIXI.Container();
+const shadowLayer  = new PIXI.Container();
+const heartLayer   = new PIXI.Container();
+const nyxCont      = new PIXI.Container();
+const zzzLayer     = new PIXI.Container();
+const bubbleLayer  = new PIXI.Container();
+app.stage.addChild(fireflyLayer, glowLayer, shadowLayer, heartLayer, nyxCont, zzzLayer, bubbleLayer);
 
-for (let i = 0; i < 25; i++) {
-  const g = new PIXI.Graphics();
-  const size = Math.random() < 0.3 ? 2 : 1;
-  g.beginFill(0x10103a, 0.5 + Math.random() * 0.3);
-  g.drawRect(0, 0, size, size);
-  g.endFill();
-  g.x = Math.random() * W;
-  g.y = Math.random() * H;
-  const spd = 0.06 + Math.random() * 0.1;
-  bgLayer.addChild(g);
-  bgParts.push({ g, vx: (Math.random() - 0.5) * spd, vy: -(spd * 0.4) });
-}
-
-function tickBg() {
-  for (const p of bgParts) {
-    p.g.x = (p.g.x + p.vx + W) % W;
-    p.g.y = (p.g.y + p.vy + H) % H;
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-//  Nyx container + sprite drawing
-// ═══════════════════════════════════════════════════════
-const nyxLayer = new PIXI.Container();
-app.stage.addChild(nyxLayer);
-
-const nyxCont = new PIXI.Container();
-nyxLayer.addChild(nyxCont);
 nyxCont.x = W / 2;
 nyxCont.y = H / 2;
 
-let nyxState  = 'observe';
+let nyxState   = 'observe';
 let facingLeft = false;
 
-function redrawCat(key) {
+// ── soft glow (built once, repositioned + pulsed) ──
+const glow = new PIXI.Graphics();
+for (let r = 64; r >= 10; r -= 6) {
+  glow.beginFill(0xffc89a, 0.045);
+  glow.drawCircle(0, 0, r);
+  glow.endFill();
+}
+glowLayer.addChild(glow);
+
+// ── ground shadow (warm, grounds the creature) ──
+const shadow = new PIXI.Graphics();
+shadow.beginFill(0x000000, 0.22);
+shadow.drawEllipse(0, 0, SPR_W * 0.42, 7);
+shadow.endFill();
+shadowLayer.addChild(shadow);
+
+// ═══════════════════════════════════════════════════════
+//  Sprite drawing
+// ═══════════════════════════════════════════════════════
+function currentColor() {
+  if (reactTimer > 0) return HAPPY_COLOR;
+  return STATE_COLOR[nyxState] ?? STATE_COLOR.observe;
+}
+
+function redrawCat(eyesOpen) {
   nyxCont.removeChildren();
-  const rows  = SPRITE[key] ?? SPRITE.normal;
-  const color = STATE_COLOR[nyxState] ?? 0x282868;
-  const cols  = rows[0].length;
-  const ox = -(cols * PX) / 2;
-  const oy = -(rows.length * PX) / 2;
+  const color = currentColor();
+  const ox = -SPR_W / 2;
+  const oy = -SPR_H / 2;
   const g = new PIXI.Graphics();
-  rows.forEach((row, y) => row.forEach((c, x) => {
-    if (!c) return;
-    g.beginFill(color);
-    g.drawRect(ox + x * PX, oy + y * PX, PX, PX);
+
+  // body
+  for (let y = 0; y < ROWS; y++) {
+    for (let x = 0; x < COLS; x++) {
+      if (!BODY[y][x]) continue;
+      g.beginFill(color);
+      g.drawRect(ox + x * PX, oy + y * PX, PX, PX);
+      g.endFill();
+    }
+  }
+
+  // eyes — carve gaps (open) or draw happy curves
+  if (reactTimer > 0) {
+    g.beginFill(0x2a1820);
+    for (const [ey, ex] of EYE_HAPPY) {
+      g.drawRect(ox + ex * PX, oy + ey * PX, PX, PX);
+    }
     g.endFill();
-  }));
+  } else if (eyesOpen) {
+    g.beginFill(0x2a1820);
+    for (const [ey, ex] of EYE_OPEN) {
+      g.drawRect(ox + ex * PX, oy + ey * PX, PX, PX);
+    }
+    g.endFill();
+  }
+  // (eyes closed = nothing carved → smooth sleepy face)
+
   nyxCont.addChild(g);
   nyxCont.scale.x = facingLeft ? -1 : 1;
 }
-redrawCat('normal');
 
 // ═══════════════════════════════════════════════════════
-//  ZZZ particles
+//  Fireflies (warm drifting motes)
 // ═══════════════════════════════════════════════════════
-const zzzLayer = new PIXI.Container();
-app.stage.addChild(zzzLayer);
-const zzzPool = [];
-let zTimer = 0;
-
-function spawnZ(x, y) {
-  const s = new PIXI.TextStyle({ fontFamily: 'Courier New', fontSize: 11, fill: 0x405870 });
-  const t = new PIXI.Text('z', s);
-  t.x = x + (Math.random() - 0.5) * 14;
-  t.y = y - 28;
-  t.alpha = 0.5;
-  zzzLayer.addChild(t);
-  zzzPool.push({ t, vy: 0.25 + Math.random() * 0.15, life: 1.0 });
+const flies = [];
+for (let i = 0; i < 20; i++) {
+  const g = new PIXI.Graphics();
+  g.beginFill(0xffd6a0, 1);
+  g.drawCircle(0, 0, Math.random() < 0.3 ? 1.6 : 1);
+  g.endFill();
+  g.x = Math.random() * W;
+  g.y = Math.random() * H;
+  fireflyLayer.addChild(g);
+  flies.push({
+    g,
+    vx: (Math.random() - 0.5) * 0.12,
+    vy: -(0.04 + Math.random() * 0.07),
+    ph: Math.random() * Math.PI * 2,
+    sp: 0.01 + Math.random() * 0.02,
+  });
+}
+function tickFlies(dt) {
+  for (const f of flies) {
+    f.g.x = (f.g.x + f.vx * dt + W) % W;
+    f.g.y = (f.g.y + f.vy * dt + H) % H;
+    f.ph += f.sp * dt;
+    f.g.alpha = 0.25 + (Math.sin(f.ph) + 1) * 0.3;
+  }
 }
 
-function tickZzz(dt, sleeping, x, y) {
-  if (sleeping) {
-    zTimer += dt;
-    if (zTimer > 70) { spawnZ(x, y); zTimer = 0; }
-  } else {
-    zTimer = 0;
+// ═══════════════════════════════════════════════════════
+//  Hearts / sparkles (cute reaction)
+// ═══════════════════════════════════════════════════════
+const hearts = [];
+function spawnHeart(x, y) {
+  const g = new PIXI.Graphics();
+  g.beginFill(0xff9bb0, 1);
+  // tiny pixel heart
+  const h = [
+    [0,1,0,1,0],
+    [1,1,1,1,1],
+    [0,1,1,1,0],
+    [0,0,1,0,0],
+  ];
+  h.forEach((row, ry) => row.forEach((c, rx) => {
+    if (c) g.drawRect(rx * 2, ry * 2, 2, 2);
+  }));
+  g.endFill();
+  g.pivot.set(5, 4);
+  g.x = x + (Math.random() - 0.5) * 22;
+  g.y = y - SPR_H / 2;
+  heartLayer.addChild(g);
+  hearts.push({ g, vy: 0.4 + Math.random() * 0.3, vx: (Math.random() - 0.5) * 0.2, life: 1 });
+}
+function tickHearts(dt) {
+  for (let i = hearts.length - 1; i >= 0; i--) {
+    const p = hearts[i];
+    p.g.y -= p.vy * dt;
+    p.g.x += p.vx * dt;
+    p.life -= dt * 0.012;
+    p.g.alpha = Math.max(0, p.life);
+    p.g.scale.set(0.8 + (1 - p.life) * 0.5);
+    if (p.life <= 0) { heartLayer.removeChild(p.g); hearts.splice(i, 1); }
   }
-  for (let i = zzzPool.length - 1; i >= 0; i--) {
-    const p = zzzPool[i];
+}
+
+// ═══════════════════════════════════════════════════════
+//  ZZZ particles (sleep)
+// ═══════════════════════════════════════════════════════
+const zzz = [];
+let zTimer = 0;
+function spawnZ(x, y) {
+  const s = new PIXI.TextStyle({ fontFamily: 'Courier New', fontSize: 12, fill: 0x9a86b0 });
+  const t = new PIXI.Text('z', s);
+  t.x = x + (Math.random() - 0.5) * 14;
+  t.y = y - SPR_H / 2 - 6;
+  t.alpha = 0.6;
+  zzzLayer.addChild(t);
+  zzz.push({ t, vy: 0.25 + Math.random() * 0.15, life: 1 });
+}
+function tickZzz(dt, sleeping, x, y) {
+  if (sleeping) { zTimer += dt; if (zTimer > 80) { spawnZ(x, y); zTimer = 0; } }
+  else zTimer = 0;
+  for (let i = zzz.length - 1; i >= 0; i--) {
+    const p = zzz[i];
     p.t.y -= p.vy * dt;
-    p.life -= dt * 0.007;
-    p.t.alpha = Math.max(0, p.life * 0.5);
-    if (p.life <= 0) { zzzLayer.removeChild(p.t); zzzPool.splice(i, 1); }
+    p.life -= dt * 0.006;
+    p.t.alpha = Math.max(0, p.life * 0.6);
+    if (p.life <= 0) { zzzLayer.removeChild(p.t); zzz.splice(i, 1); }
   }
 }
 
 // ═══════════════════════════════════════════════════════
 //  Thought bubble
 // ═══════════════════════════════════════════════════════
-const bubbleLayer = new PIXI.Container();
-app.stage.addChild(bubbleLayer);
-
-let bubble = null;
-let bTimer = 0;
-let bDuration = 0;
+let bubble = null, bTimer = 0, bDuration = 0;
 
 function showBubble(text, permanent = false) {
   if (bubble) { bubbleLayer.removeChild(bubble.ctr); bubble = null; }
-
-  const pad = 9;
-  const maxW = 230;
+  const pad = 11, maxW = 260;
   const style = new PIXI.TextStyle({
-    fontFamily: 'Courier New', fontSize: 13,
-    fill: 0xd0d0f0,
-    wordWrap: true, wordWrapWidth: maxW - pad * 2,
+    fontFamily: 'Courier New', fontSize: 13, fill: 0xf3e2e6,
+    wordWrap: true, wordWrapWidth: maxW - pad * 2, lineHeight: 18,
   });
   const txt = new PIXI.Text(text, style);
   txt.x = pad; txt.y = pad;
-
   const bw = Math.min(maxW, txt.width + pad * 2);
   const bh = txt.height + pad * 2;
 
   const bg = new PIXI.Graphics();
-  bg.beginFill(0x0e0e28, 0.95);
-  bg.lineStyle(1, 0x3a3a70, 0.85);
-  bg.drawRoundedRect(0, 0, bw, bh, 4);
+  bg.beginFill(0x241820, 0.95);
+  bg.lineStyle(1, 0x6a4a52, 0.85);
+  bg.drawRoundedRect(0, 0, bw, bh, 10);
   bg.endFill();
-  // pointer
-  bg.beginFill(0x0e0e28, 0.95);
-  bg.lineStyle(0);
-  bg.moveTo(bw / 2 - 5, bh);
-  bg.lineTo(bw / 2 + 5, bh);
-  bg.lineTo(bw / 2, bh + 7);
-  bg.closePath();
-  bg.endFill();
+  bg.beginFill(0x241820, 0.95); bg.lineStyle(0);
+  bg.moveTo(bw / 2 - 6, bh); bg.lineTo(bw / 2 + 6, bh); bg.lineTo(bw / 2, bh + 8);
+  bg.closePath(); bg.endFill();
 
   const ctr = new PIXI.Container();
-  ctr.addChild(bg);
-  ctr.addChild(txt);
+  ctr.addChild(bg); ctr.addChild(txt);
   ctr.alpha = 0;
   bubbleLayer.addChild(ctr);
 
-  const readMs = Math.max(140, text.length * 55);
+  const readMs = Math.max(180, text.length * 60);
   bubble = { ctr, txt, bw, bh, fading: false, permanent };
   bTimer = 0;
   bDuration = permanent ? Infinity : readMs;
 }
-
-function updateBubbleText(text) {
-  if (!bubble) return;
-  bubble.txt.text = text;
-}
-
-function finishBubble() {
-  if (!bubble) return;
-  bTimer = 0;
-  bDuration = 160; // let it stay briefly then fade
-  bubble.permanent = false;
-}
+function updateBubbleText(text) { if (bubble) bubble.txt.text = text; }
+function finishBubble() { if (!bubble) return; bTimer = 0; bDuration = 200; bubble.permanent = false; }
 
 function tickBubble(dt, nx, ny) {
   if (!bubble) return;
   const { ctr, bw, bh } = bubble;
-  const sprH = SPRITE.normal.length * PX;
-
-  ctr.x = nx - bw / 2;
-  ctr.y = ny - sprH / 2 - bh - 14;
-
-  // clamp to screen edges
-  ctr.x = Math.max(8, Math.min(W - bw - 8, ctr.x));
-  ctr.y = Math.max(8, ctr.y);
-
-  if (ctr.alpha < 1 && !bubble.fading) {
-    ctr.alpha = Math.min(1, ctr.alpha + dt * 0.06);
-  }
-  if (!bubble.permanent) {
-    bTimer += dt;
-    if (bTimer >= bDuration) bubble.fading = true;
-  }
+  ctr.x = Math.max(8, Math.min(W - bw - 8, nx - bw / 2));
+  ctr.y = Math.max(8, ny - SPR_H / 2 - bh - 16);
+  if (ctr.alpha < 1 && !bubble.fading) ctr.alpha = Math.min(1, ctr.alpha + dt * 0.06);
+  if (!bubble.permanent) { bTimer += dt; if (bTimer >= bDuration) bubble.fading = true; }
   if (bubble.fading) {
     ctr.alpha = Math.max(0, ctr.alpha - dt * 0.02);
     if (ctr.alpha <= 0) { bubbleLayer.removeChild(ctr); bubble = null; }
@@ -388,20 +419,35 @@ function tickBubble(dt, nx, ny) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  Nyx movement
+//  Movement + cute behaviour
 // ═══════════════════════════════════════════════════════
-const PAD = 90;
-let mover = {
-  x: W / 2, y: H / 2,
-  tx: W / 2, ty: H / 2,
-  spd: 0.042,
-  phase: 'idle',  // idle | walk | pause
-  idleMs:   0,
-  pauseMs:  0,
-  bobT:     0,
-  sitTimer: 0,
-  sitting:  false,
+const PAD = 80;
+const mover = {
+  x: W / 2, y: H / 2, tx: W / 2, ty: H / 2,
+  spd: 0.9,                 // gentle wander speed (px/frame @60fps)
+  phase: 'idle',            // idle | walk | pause | resting
+  idleMs: 1400,
+  pauseMs: 0,
+  restMs: 0,
+  bobT: 0,
+  hop: 0,                   // happy hop offset
+  comingToSit: false,
 };
+
+// blink + reaction timers
+let blinkTimer = 60 + Math.random() * 180;
+let blinkFrames = 0;
+let reactTimer = 0;        // > 0 → happy face active
+let lookTimer = 90;        // periodic "look around"
+
+const WARM_LINES = [
+  "…ここにいるよ。",
+  "ふふ、来てくれたんだ。",
+  "となりにいても、いい？",
+  "…おかえり。",
+  "そばにいるね。",
+  "あたたかいね、ここ。",
+];
 
 function newTarget() {
   mover.tx = PAD + Math.random() * (W - PAD * 2);
@@ -409,16 +455,49 @@ function newTarget() {
   mover.phase = 'walk';
 }
 
+function startReaction() {
+  reactTimer = 150;        // ~2.5s happy face
+  mover.hop = 1;           // trigger a little hop
+  spawnHeart(mover.x, mover.y);
+  setTimeout(() => spawnHeart(mover.x, mover.y), 180);
+  setTimeout(() => spawnHeart(mover.x, mover.y), 360);
+  if (!streamingActive) showBubble(WARM_LINES[Math.floor(Math.random() * WARM_LINES.length)]);
+}
+
+function comeToSit() {
+  // walk to a warm spot just in front of the viewer (lower-centre)
+  mover.tx = W / 2 + (Math.random() - 0.5) * 70;
+  mover.ty = H * 0.62 + (Math.random() - 0.5) * 30;
+  mover.phase = 'walk';
+  mover.comingToSit = true;
+}
+
 function tickMover(dt) {
   const sleeping = nyxState === 'sleep';
-  const spd = sleeping ? mover.spd * 0.25 : mover.spd;
+  const baseSpd = mover.comingToSit ? 1.9 : (sleeping ? mover.spd * 0.3 : mover.spd);
 
-  if (mover.sitting) {
-    mover.sitTimer -= dt;
-    if (mover.sitTimer <= 0) { mover.sitting = false; newTarget(); }
+  // ── blink ──
+  if (blinkFrames > 0) { blinkFrames -= dt; }
+  else {
+    blinkTimer -= dt;
+    if (blinkTimer <= 0) { blinkFrames = 8; blinkTimer = 120 + Math.random() * 220; }
   }
 
-  if (mover.phase === 'idle') {
+  // ── reaction (happy face) decay ──
+  if (reactTimer > 0) reactTimer -= dt;
+
+  // ── occasional look-around while idle ──
+  if (mover.phase === 'idle' || mover.phase === 'resting') {
+    lookTimer -= dt;
+    if (lookTimer <= 0) { facingLeft = Math.random() < 0.5; lookTimer = 80 + Math.random() * 160; }
+  }
+
+  // ── phase machine ──
+  if (mover.phase === 'resting') {
+    mover.restMs -= dt * 16.67;
+    if (mover.restMs <= 0) { mover.phase = 'idle'; mover.idleMs = 800; }
+
+  } else if (mover.phase === 'idle') {
     mover.idleMs -= dt * 16.67;
     if (mover.idleMs <= 0) newTarget();
 
@@ -426,40 +505,57 @@ function tickMover(dt) {
     mover.pauseMs -= dt * 16.67;
     if (mover.pauseMs <= 0) mover.phase = 'walk';
 
-  } else {
-    const dx = mover.tx - mover.x;
-    const dy = mover.ty - mover.y;
-    const d  = Math.hypot(dx, dy);
-    if (d < 5) {
-      mover.phase = 'idle';
-      mover.idleMs = sleeping
-        ? 8000 + Math.random() * 14000
-        :  2500 + Math.random() *  5000;
-    } else {
-      // occasional mid-walk pause when thinking
-      if (nyxState === 'think' && Math.random() < 0.0006 * dt) {
-        mover.phase = 'pause';
-        mover.pauseMs = 900 + Math.random() * 2200;
+  } else { // walk
+    const dx = mover.tx - mover.x, dy = mover.ty - mover.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 6) {
+      if (mover.comingToSit) {
+        mover.comingToSit = false;
+        startReaction();
+        mover.phase = 'resting';
+        mover.restMs = 11000;           // stays with you a good while
       } else {
-        mover.x += (dx / d) * spd * dt;
-        mover.y += (dy / d) * spd * dt;
+        mover.phase = 'idle';
+        mover.idleMs = sleeping ? 7000 + Math.random() * 12000
+                                : 1200 + Math.random() * 3000;   // moves more often
+      }
+    } else {
+      if (nyxState === 'think' && !mover.comingToSit && Math.random() < 0.0005 * dt) {
+        mover.phase = 'pause'; mover.pauseMs = 700 + Math.random() * 1600;
+      } else {
+        mover.x += (dx / d) * baseSpd * dt;
+        mover.y += (dy / d) * baseSpd * dt;
         facingLeft = dx < 0;
-        mover.bobT += dt * 0.28;
+        mover.bobT += dt * 0.32;
       }
     }
   }
 
-  const sleeping2 = sleeping && mover.phase === 'idle';
-  redrawCat(sleeping2 ? 'sleep' : 'normal');
+  // eyes open unless blinking or sleeping-idle
+  const sleepingIdle = sleeping && (mover.phase === 'idle' || mover.phase === 'resting');
+  const eyesOpen = !sleepingIdle && blinkFrames <= 0;
+  redrawCat(eyesOpen);
+
+  // hop decay (cute bounce on reaction)
+  if (mover.hop > 0) mover.hop = Math.max(0, mover.hop - dt * 0.04);
+  const hopOffset = Math.sin((1 - mover.hop) * Math.PI) * 14 * mover.hop;
 
   const bob = mover.phase === 'walk'
-    ? Math.sin(mover.bobT) * 2.2
-    : Math.sin(mover.bobT * 0.28) * 0.9;
+    ? Math.abs(Math.sin(mover.bobT)) * 2.6
+    : Math.sin(mover.bobT * 0.25) * 0.8;
+
   nyxCont.x = mover.x;
-  nyxCont.y = mover.y + bob;
+  nyxCont.y = mover.y + bob - hopOffset;
+
+  // glow + shadow follow
+  glow.x = mover.x; glow.y = mover.y;
+  glow.scale.set(1 + Math.sin(mover.bobT * 0.4) * 0.06 + (reactTimer > 0 ? 0.18 : 0));
+  shadow.x = mover.x; shadow.y = mover.y + SPR_H / 2 + 2;
+  shadow.scale.set(1 - hopOffset * 0.012, 1);
+  shadow.alpha = 0.22 - hopOffset * 0.004;
 }
 
-setTimeout(newTarget, 1800);
+setTimeout(newTarget, 1200);
 
 // ═══════════════════════════════════════════════════════
 //  Thought stream (DOM)
@@ -467,19 +563,16 @@ setTimeout(newTarget, 1800);
 const streamEl = document.getElementById('thought-stream');
 const streamPool = [];
 const MAX_S = 5;
-
 function addStream(text) {
   const el = document.createElement('div');
   el.className = 't-entry';
-  el.textContent = text.length > 58 ? text.slice(0, 58) + '…' : text;
+  el.textContent = text.length > 60 ? text.slice(0, 60) + '…' : text;
   streamEl.prepend(el);
   streamPool.push(el);
-
   streamPool.forEach((e, i) => {
     const age = streamPool.length - 1 - i;
-    e.style.opacity = Math.max(0.06, 0.55 - age * 0.1);
+    e.style.opacity = Math.max(0.12, 0.92 - age * 0.18);
   });
-
   while (streamPool.length > MAX_S) {
     const old = streamPool.shift();
     old.style.opacity = '0';
@@ -493,8 +586,7 @@ function addStream(text) {
 const whisperWrap  = document.getElementById('whisper-wrap');
 const whisperInput = document.getElementById('whisper-input');
 const hintEl       = document.getElementById('hint');
-let whisperOpen = false;
-let hintHidden  = false;
+let whisperOpen = false, hintHidden = false;
 
 function openWhisper() {
   whisperWrap.classList.add('open');
@@ -503,24 +595,19 @@ function openWhisper() {
   whisperOpen = true;
   if (!hintHidden) { hintEl.style.opacity = '0'; hintHidden = true; }
 }
-function closeWhisper() {
-  whisperWrap.classList.remove('open');
-  whisperOpen = false;
-}
+function closeWhisper() { whisperWrap.classList.remove('open'); whisperOpen = false; }
 
 document.addEventListener('keydown', e => {
-  if (e.key === '/' && !whisperOpen && e.target.tagName !== 'INPUT') {
-    e.preventDefault();
-    openWhisper();
-  }
+  if (e.key === '/' && !whisperOpen && e.target.tagName !== 'INPUT') { e.preventDefault(); openWhisper(); }
   if (e.key === 'Escape') closeWhisper();
 });
-
 whisperInput.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
     const text = whisperInput.value.trim();
     if (text && ws?.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'chat', content: text }));
+      // Nyx turns toward you, attentive
+      facingLeft = mover.x > W / 2;
     }
     closeWhisper();
   }
@@ -529,85 +616,70 @@ whisperInput.addEventListener('keydown', e => {
 // ═══════════════════════════════════════════════════════
 //  Sit nearby
 // ═══════════════════════════════════════════════════════
-document.getElementById('sit-btn').addEventListener('click', () => {
-  mover.tx = W / 2 + (Math.random() - 0.5) * 80;
-  mover.ty = H / 2 + (Math.random() - 0.5) * 60;
-  mover.phase = 'walk';
-  mover.sitting = true;
-  mover.sitTimer = 320; // ~5s at 60fps
-});
+document.getElementById('sit-btn').addEventListener('click', comeToSit);
 
 // ═══════════════════════════════════════════════════════
 //  WebSocket
 // ═══════════════════════════════════════════════════════
 const connDot = document.getElementById('conn-dot');
-let ws;
-let streamingActive = false;
-let streamingText = '';
+let ws, streamingActive = false, streamingText = '';
+let greeted = false;
 
 function connect() {
   ws = new WebSocket(`ws://${location.host}/ws`);
-
-  ws.onopen  = () => { connDot.style.background = '#182818'; };
-  ws.onclose = () => { connDot.style.background = '#181010'; setTimeout(connect, 3000); };
+  ws.onopen  = () => {
+    connDot.style.background = '#3a6a3a';
+    if (!greeted) {
+      greeted = true;
+      setTimeout(() => { if (!streamingActive) showBubble("…あ。きみだ。"); }, 2200);
+    }
+  };
+  ws.onclose = () => { connDot.style.background = '#6a3030'; setTimeout(connect, 3000); };
   ws.onerror = () => ws.close();
 
   ws.onmessage = ({ data }) => {
     const msg = JSON.parse(data);
 
-    // State update
-    if (msg.type === 'state' || msg.state) {
-      nyxState = msg.state?.state ?? nyxState;
-    }
+    if (msg.type === 'state' || msg.state) nyxState = msg.state?.state ?? nyxState;
 
-    // Internal thought → stream + bubble
     if (msg.type === 'thought' || msg.type === 'speak') {
       addStream(msg.content);
       if (!streamingActive) showBubble(msg.content);
     }
+    if (msg.type === 'deep_ack') showBubble(msg.content, true);
 
-    // Deep-thought ack (before streaming starts)
-    if (msg.type === 'deep_ack') {
-      showBubble(msg.content, true);
-    }
-    if (msg.type === 'thinking') {
-      // bubble stays until chat_start replaces it
-    }
-
-    // Streaming response (whisper reply → thought bubble)
-    if (msg.type === 'chat_start') {
-      streamingActive = true;
-      streamingText   = '';
-      showBubble('', true);
-    }
+    if (msg.type === 'chat_start') { streamingActive = true; streamingText = ''; showBubble('', true); }
     if (msg.type === 'token' && streamingActive) {
       streamingText += msg.content;
-      const disp = streamingText.length > 140
-        ? '…' + streamingText.slice(-140) : streamingText;
+      const disp = streamingText.length > 150 ? '…' + streamingText.slice(-150) : streamingText;
       updateBubbleText(disp);
     }
-    if (msg.type === 'chat_done') {
-      if (streamingActive) {
-        const final = streamingText.length > 140
-          ? streamingText.slice(0, 140) + '…' : streamingText;
-        updateBubbleText(final);
-        addStream(streamingText);
-        finishBubble();
-        streamingActive = false;
-        streamingText   = '';
-      }
+    if (msg.type === 'chat_done' && streamingActive) {
+      const final = streamingText.length > 150 ? streamingText.slice(0, 150) + '…' : streamingText;
+      updateBubbleText(final);
+      if (streamingText.trim()) addStream(streamingText);
+      finishBubble();
+      streamingActive = false; streamingText = '';
     }
   };
 }
-
 connect();
+
+// ═══════════════════════════════════════════════════════
+//  Resize
+// ═══════════════════════════════════════════════════════
+window.addEventListener('resize', () => {
+  W = window.innerWidth; H = window.innerHeight;
+  app.renderer.resize(W, H);
+});
 
 // ═══════════════════════════════════════════════════════
 //  Main loop
 // ═══════════════════════════════════════════════════════
 app.ticker.add(delta => {
-  tickBg();
+  tickFlies(delta);
   tickMover(delta);
+  tickHearts(delta);
   tickBubble(delta, nyxCont.x, nyxCont.y);
   tickZzz(delta, nyxState === 'sleep', nyxCont.x, nyxCont.y);
 });
